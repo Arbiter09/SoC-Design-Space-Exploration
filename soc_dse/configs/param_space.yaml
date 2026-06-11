@@ -1,0 +1,35 @@
+# SoC Design Space Exploration — Parameter Space Definition
+#
+# Each key maps to a list of candidate values.
+# The generator will enumerate the Cartesian product of all lists
+# (or a random sample with --sample N).
+#
+# Full grid: 3 × 3 × 3 × 3 × 2 = 162 configurations
+#
+# Usage:
+#   python -m soc_dse.backend.generator                    # full sweep
+#   python -m soc_dse.backend.generator --sample 10        # 10 random configs
+
+pipeline_stages:
+  - 3
+  - 5
+  - 7
+
+cache_size_kb:
+  - 16
+  - 32
+  - 64
+
+alu_units:
+  - 1
+  - 2
+  - 4
+
+memory_banks:
+  - 1
+  - 2
+  - 4
+
+bus_width:
+  - 32
+  - 64

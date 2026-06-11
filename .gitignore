@@ -1,0 +1,61 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Model checkpoints
+soc_dse/model/checkpoints/*.pt
+
+# Generated RTL configs
+soc_dse/configs/*/rtl/
+soc_dse/configs/*/netlist.json
+soc_dse/configs/*/*.ys
+soc_dse/configs/*/obj_dir/
+
+# Generated graphs
+soc_dse/graphs/*.json
+
+# SQLite databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Simulation artifacts
+*.vcd
+*.fst
+
+# Yosys / Verilator build artifacts
+obj_dir/
+*.log
+
+# Visualization outputs
+soc_dse/viz/output/
+
+# Triage reports
+soc_dse/configs/*/triage_report.json
+
+# CI / OS
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Cursor / IDE
+.cursor/
+mcptrace.db
+
+# Jupyter
+.ipynb_checkpoints/
