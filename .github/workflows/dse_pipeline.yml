@@ -1,0 +1,188 @@
+name: DSE Pipeline CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  YOSYS_VERSION: "0.38"
+  VERILATOR_VERSION: "5.020"
+
+jobs:
+  dse-smoke-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      # -------------------------------------------------------------------
+      # 1. Checkout
+      # -------------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # -------------------------------------------------------------------
+      # 2. Cache Yosys + Verilator apt packages
+      #    Key includes tool versions so a version bump invalidates the cache.
+      # -------------------------------------------------------------------
+      - name: Cache apt packages
+        uses: actions/cache@v4
+        id: apt-cache
+        with:
+          path: /var/cache/apt/archives
+          key: apt-yosys-${{ env.YOSYS_VERSION }}-verilator-${{ env.VERILATOR_VERSION }}-${{ runner.os }}
+          restore-keys: |
+            apt-yosys-${{ env.YOSYS_VERSION }}-verilator-
+
+      - name: Install Yosys and Verilator
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            yosys \
+            verilator \
+            build-essential \
+            g++
+          yosys --version
+          verilator --version
+
+      # -------------------------------------------------------------------
+      # 3. Python setup
+      # -------------------------------------------------------------------
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ hashFiles('soc_dse/requirements.txt') }}
+          restore-keys: pip-${{ runner.os }}-
+
+      - name: Install Python dependencies
+        run: pip install -r soc_dse/requirements.txt
+
+      # -------------------------------------------------------------------
+      # 4. Install project package (editable)
+      # -------------------------------------------------------------------
+      - name: Install soc_dse package
+        run: pip install -e .
+
+      # -------------------------------------------------------------------
+      # 5. Generate 10 RTL configs (smoke-test subset)
+      # -------------------------------------------------------------------
+      - name: Generate 10 RTL configs
+        run: |
+          python -m soc_dse.backend.generator \
+            soc_dse/configs/param_space.yaml \
+            --sample 10 --seed 0
+        env:
+          SOC_DB_PATH: /tmp/dse_ci.db
+
+      # -------------------------------------------------------------------
+      # 6. Run Yosys synthesis on all 10 configs
+      # -------------------------------------------------------------------
+      - name: Run Yosys synthesis
+        run: |
+          python -m soc_dse.backend.run_pipeline \
+            --param-space soc_dse/configs/param_space.yaml \
+            --sample 10 --seed 0 \
+            --synth-only --workers 2
+        env:
+          SOC_DB_PATH: /tmp/dse_ci.db
+
+      # -------------------------------------------------------------------
+      # 7. Parse netlists → graph JSON files
+      # -------------------------------------------------------------------
+      - name: Parse netlists to graphs
+        run: python -m soc_dse.backend.netlist_parser
+        env:
+          SOC_DB_PATH: /tmp/dse_ci.db
+          SOC_GRAPHS_DIR: /tmp/dse_ci_graphs
+
+      # -------------------------------------------------------------------
+      # 8. Run Verilator simulation (best-effort; failures don't block CI)
+      # -------------------------------------------------------------------
+      - name: Run Verilator simulation
+        continue-on-error: true
+        run: |
+          python -m soc_dse.backend.run_pipeline \
+            --param-space soc_dse/configs/param_space.yaml \
+            --sample 10 --seed 0 \
+            --sim-only --workers 2
+        env:
+          SOC_DB_PATH: /tmp/dse_ci.db
+
+      # -------------------------------------------------------------------
+      # 9. 5-epoch GNN training sanity check — assert mean R² > 0.5
+      # -------------------------------------------------------------------
+      - name: GNN training sanity check (5 epochs)
+        run: |
+          python - <<'EOF'
+          import sys, json
+          from pathlib import Path
+          from soc_dse.model.train import train
+          from soc_dse.model.dataset import PPA_KEYS
+
+          metrics = train(
+              graphs_dir=Path("/tmp/dse_ci_graphs"),
+              epochs=5,
+              batch_size=4,
+              seed=42,
+          )
+          r2_vals = [metrics.get(f"test_r2_{k}", 0.0) for k in PPA_KEYS]
+          mean_r2 = sum(r2_vals) / len(r2_vals)
+          print(f"Mean R²: {mean_r2:.4f}")
+          print(json.dumps(metrics, indent=2))
+
+          if mean_r2 < 0.5:
+              print(f"FAIL: Mean R² {mean_r2:.4f} < 0.5 threshold")
+              sys.exit(1)
+          print("PASS: R² threshold satisfied")
+          EOF
+        env:
+          SOC_DB_PATH: /tmp/dse_ci.db
+          SOC_GRAPHS_DIR: /tmp/dse_ci_graphs
+
+      # -------------------------------------------------------------------
+      # 10. Triage any failed configs
+      # -------------------------------------------------------------------
+      - name: Triage failed configs
+        continue-on-error: true
+        run: python -m soc_dse.triage.classifier
+        env:
+          SOC_DB_PATH: /tmp/dse_ci.db
+
+      # -------------------------------------------------------------------
+      # 11. Generate visualisation plots
+      # -------------------------------------------------------------------
+      - name: Generate visualisation plots
+        continue-on-error: true
+        run: |
+          python -m soc_dse.viz.plot --out-dir /tmp/dse_ci_plots
+        env:
+          SOC_DB_PATH: /tmp/dse_ci.db
+
+      # -------------------------------------------------------------------
+      # 12. Upload plot artifacts
+      # -------------------------------------------------------------------
+      - name: Upload plot artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dse-plots-${{ github.run_number }}
+          path: /tmp/dse_ci_plots/
+          retention-days: 14
+
+      # -------------------------------------------------------------------
+      # 13. Upload graph JSON artifacts
+      # -------------------------------------------------------------------
+      - name: Upload graph artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dse-graphs-${{ github.run_number }}
+          path: /tmp/dse_ci_graphs/
+          retention-days: 7

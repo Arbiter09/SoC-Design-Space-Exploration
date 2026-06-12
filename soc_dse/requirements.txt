@@ -1,0 +1,31 @@
+# SoC Design Space Exploration — Python dependencies
+#
+# Install with:
+#   pip install -r requirements.txt
+#
+# External tools (installed separately — see README.md):
+#   Yosys:     https://github.com/YosysHQ/yosys
+#   Verilator: https://www.veripool.org/verilator/
+
+# ---- Core ----
+PyYAML>=6.0
+Jinja2>=3.1
+networkx>=3.2
+
+# ---- Machine learning ----
+torch>=2.2
+torch-geometric>=2.5
+scikit-learn>=1.4
+
+# ---- Visualisation ----
+matplotlib>=3.8
+plotly>=5.20
+pandas>=2.2
+numpy>=1.26
+kaleido>=0.2          # static PNG export for Plotly
+
+# ---- Optional: VCD parsing helper ----
+# pyDigitalWaveTools>=0.3  # uncomment if available; vcd_parser falls back gracefully
+
+# ---- Dev / CI ----
+pytest>=8.0
